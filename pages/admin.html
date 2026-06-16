@@ -1,0 +1,480 @@
+﻿<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestionar productos — Lana &amp; Lino</title>
+    <link rel="stylesheet" href="../css/estilos.css">
+</head>
+<body>
+
+<main class="page-container">
+    <div class="page-header">
+        <h1>Gestión de productos</h1>
+        <p class="text-muted">Panel de administrador</p>
+    </div>
+
+    <!-- Acceso denegado -->
+    <div id="no-access" style="display:none" class="empty-state">
+        <div class="empty-icon">🔒</div>
+        <h3>Acceso denegado</h3>
+        <p>Esta sección es solo para administradores.</p>
+        <a href="../index.html" class="btn btn-primary mt-3">Volver al inicio</a>
+    </div>
+
+    <!-- Panel admin -->
+    <div id="admin-content" style="display:none">
+        <div class="admin-tabs">
+            <button class="admin-tab active" onclick="switchTab('cargar')">Cargar producto</button>
+            <button class="admin-tab" onclick="switchTab('gestionar')">Gestionar productos</button>
+            <button class="admin-tab" onclick="switchTab('categorias')">Categorías</button>
+        </div>
+
+        <!-- TAB: Cargar producto -->
+        <div id="tab-cargar" class="admin-panel active">
+            <div class="admin-form">
+                <h3>Nuevo producto</h3>
+                <div id="msg-cargar" class="msg"></div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nombre</label>
+                        <input type="text" id="p-nombre" required placeholder="Remera básica">
+                    </div>
+                    <div class="form-group">
+                        <label>Precio ($)</label>
+                        <input type="number" id="p-precio" required min="0" step="0.01" placeholder="1500">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>Descripción</label>
+                    <textarea id="p-descripcion" required placeholder="Descripción del producto..."></textarea>
+                </div>
+
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Género</label>
+                        <select id="p-genero">
+                            <option value="Unisex">Unisex</option>
+                            <option value="Hombre">Hombre</option>
+                            <option value="Mujer">Mujer</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Categoría</label>
+                        <select id="p-categoria" required>
+                            <option value="">Cargando...</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label>URL de imagen</label>
+                    <input type="url" id="p-imagen" placeholder="https://...imagen.jpg" oninput="previewImagen()">
+                    <img id="img-preview" src="" alt="Preview"
+                         style="display:none;margin-top:8px;max-height:140px;border-radius:8px;border:1px solid var(--border);object-fit:cover">
+                </div>
+
+                <hr class="divider">
+                <h4 style="margin-bottom:12px">Inventario (talles / colores / stock)</h4>
+
+                <div id="inv-rows">
+                    <!-- Filas generadas dinámicamente -->
+                </div>
+
+                <button type="button" class="btn btn-secondary btn-sm mb-2" onclick="addInvRow()">
+                    Agregar variante
+                </button>
+
+                <br>
+                <button class="btn btn-primary mt-2" onclick="saveProduct()">
+                    Cargar producto
+                </button>
+            </div>
+        </div>
+
+        <!-- TAB: Categorías -->
+        <div id="tab-categorias" class="admin-panel">
+            <div class="admin-form">
+                <h3>Nueva categoría</h3>
+                <div id="msg-cat" class="msg"></div>
+                <div class="form-row" style="align-items:flex-end">
+                    <div class="form-group" style="margin:0">
+                        <label>Nombre de la categoría</label>
+                        <input type="text" id="cat-nombre" placeholder="Remeras, Buzos, Camperas..."
+                               onkeydown="if(event.key==='Enter') saveCategory()">
+                    </div>
+                    <button class="btn btn-primary" onclick="saveCategory()">Agregar</button>
+                </div>
+
+                <hr class="divider">
+                <h4 style="margin-bottom:12px">Categorías existentes</h4>
+                <div id="cat-list" class="text-muted" style="font-size:0.9rem">Cargando...</div>
+            </div>
+        </div>
+
+        <!-- TAB: Gestionar productos -->
+        <div id="tab-gestionar" class="admin-panel">
+            <div style="display:flex; gap:12px; margin-bottom:20px">
+                <input type="text" id="search-admin" placeholder="Buscar por nombre..."
+                       class="variant-select" style="max-width:320px"
+                       oninput="filterAdminProducts()">
+                <button class="btn btn-secondary" onclick="loadAdminProducts()">Actualizar</button>
+            </div>
+
+            <div id="loading-admin" class="loading" style="display:none">
+                <div class="spinner"></div>
+            </div>
+
+            <div id="admin-product-list" class="admin-product-list"></div>
+        </div>
+    </div>
+</main>
+
+<!-- Modal editar producto -->
+<div class="modal-overlay" id="edit-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <h3 id="modal-title">Modificar producto</h3>
+            <button class="modal-close" onclick="closeModal()">✕</button>
+        </div>
+
+        <div id="msg-modal" class="msg"></div>
+
+        <!-- Info del producto (solo lectura) -->
+        <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:0.9rem">
+            <div style="display:flex;gap:24px;flex-wrap:wrap">
+                <div><span class="text-muted">Precio:</span> <strong id="edit-precio-display">—</strong></div>
+                <div><span class="text-muted">Género:</span> <strong id="edit-genero-display">—</strong></div>
+                <div><span class="text-muted">Categoría:</span> <strong id="edit-categoria-display">—</strong></div>
+            </div>
+            <div style="margin-top:6px"><span class="text-muted">Descripción:</span> <span id="edit-descripcion-display">—</span></div>
+        </div>
+
+        <h4 style="margin-bottom:12px;font-size:0.9rem">Stock por variante</h4>
+        <div id="inv-edit-list"></div>
+
+        <button class="btn btn-primary mt-3" onclick="saveChanges()">Guardar cambios</button>
+    </div>
+</div>
+
+<script src="../js/configuracion.js"></script>
+<script src="../js/autenticacion.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/encabezado.js"></script>
+<script>
+    let allAdminProducts = [];
+    let editVariants     = [];
+    let editProductId    = null;
+    let cachedCategories = [];
+
+    async function init() {
+        await buildHeader();
+        buildFooter();
+
+        if (!Auth.isLoggedIn() || !Auth.isAdmin()) {
+            document.getElementById('no-access').style.display = 'block';
+            return;
+        }
+
+        document.getElementById('admin-content').style.display = 'block';
+        await Promise.all([loadCategories(), loadAdminProducts()]);
+        addInvRow();
+    }
+
+    // ── Tabs ────────────────────────────────────────────────────
+    function switchTab(name) {
+        const tabNames = ['cargar', 'gestionar', 'categorias'];
+        document.querySelectorAll('.admin-tab').forEach((t, i) => {
+            t.classList.toggle('active', tabNames[i] === name);
+        });
+        document.querySelectorAll('.admin-panel').forEach(p => p.classList.remove('active'));
+        document.getElementById(`tab-${name}`).classList.add('active');
+        if (name === 'categorias') loadCategoryList();
+    }
+
+    // ── Categorías ──────────────────────────────────────────────
+    async function loadCategoryList() {
+        const div = document.getElementById('cat-list');
+        div.textContent = 'Cargando...';
+        try {
+            const cats = await API.getCategories();
+            cachedCategories = cats;
+            if (!cats.length) {
+                div.textContent = 'No hay categorías cargadas aún.';
+                return;
+            }
+            div.innerHTML = cats.map(c =>
+                `<div style="padding:8px 12px;background:var(--bg);border-radius:6px;margin-bottom:6px;border:1px solid var(--border)">
+                    <strong>${c.nombre}</strong> <span class="text-muted">(ID: ${c.id_categoria})</span>
+                </div>`
+            ).join('');
+        } catch {
+            div.textContent = 'Error al cargar categorías.';
+        }
+    }
+
+    async function saveCategory() {
+        const nombre = document.getElementById('cat-nombre').value.trim();
+        const msgEl  = document.getElementById('msg-cat');
+        if (!nombre) {
+            msgEl.textContent = 'Escribí un nombre para la categoría.';
+            msgEl.className = 'msg msg-error show';
+            return;
+        }
+        try {
+            const data = await API.createCategory(nombre);
+            if (data.codigo === 200) {
+                msgEl.textContent = `Categoría "${nombre}" creada correctamente.`;
+                msgEl.className = 'msg msg-success show';
+                document.getElementById('cat-nombre').value = '';
+                loadCategoryList();
+                loadCategories(); // actualiza el select de "cargar producto"
+            } else {
+                msgEl.textContent = data.mensaje || 'Error al crear categoría.';
+                msgEl.className = 'msg msg-error show';
+            }
+        } catch {
+            msgEl.textContent = 'Error de conexión.';
+            msgEl.className = 'msg msg-error show';
+        }
+        setTimeout(() => msgEl.className = 'msg', 4000);
+    }
+
+    // ── Categorías ──────────────────────────────────────────────
+    async function loadCategories() {
+        try {
+            cachedCategories = await API.getCategories();
+            const optHtml = cachedCategories.map(c =>
+                `<option value="${c.id_categoria}">${c.nombre}</option>`
+            ).join('');
+            document.getElementById('p-categoria').innerHTML = optHtml;
+        } catch {
+            document.getElementById('p-categoria').innerHTML =
+                '<option value="">Error cargando categorías</option>';
+        }
+    }
+
+
+    function previewImagen() {
+        const url = document.getElementById('p-imagen').value.trim();
+        const img = document.getElementById('img-preview');
+        if (url) {
+            img.src = url;
+            img.style.display = 'block';
+            img.onerror = () => { img.style.display = 'none'; };
+        } else {
+            img.style.display = 'none';
+        }
+    }
+
+    // ── Inventario rows ─────────────────────────────────────────
+    let invCount = 0;
+    function addInvRow() {
+        const n   = invCount++;
+        const div = document.createElement('div');
+        div.className = 'inv-row';
+        div.id        = `inv-${n}`;
+        div.innerHTML = `
+            <div class="form-group" style="margin:0">
+                <label>Talle</label>
+                <input type="text" placeholder="XS/S/M/L/XL/42..." class="inv-talle">
+            </div>
+            <div class="form-group" style="margin:0">
+                <label>Color</label>
+                <input type="text" placeholder="Negro, Rojo..." class="inv-color">
+            </div>
+            <div class="form-group" style="margin:0">
+                <label>Stock</label>
+                <input type="number" min="0" value="0" class="inv-stock">
+            </div>
+            <button type="button" class="btn btn-danger btn-sm" style="margin-top:20px"
+                    onclick="document.getElementById('inv-${n}').remove()">✕</button>
+        `;
+        document.getElementById('inv-rows').appendChild(div);
+    }
+
+    // ── Guardar producto nuevo ──────────────────────────────────
+    async function saveProduct() {
+        const msgEl = document.getElementById('msg-cargar');
+        msgEl.className = 'msg';
+
+        const nombre      = document.getElementById('p-nombre').value.trim();
+        const descripcion = document.getElementById('p-descripcion').value.trim();
+        const precio      = parseFloat(document.getElementById('p-precio').value);
+        const genero      = document.getElementById('p-genero').value;
+        const id_categoria = parseInt(document.getElementById('p-categoria').value);
+        const imagen      = document.getElementById('p-imagen').value.trim();
+
+        if (!nombre || !descripcion || !precio || !id_categoria) {
+            showAdminMsg('error', 'Completá todos los campos obligatorios.');
+            return;
+        }
+
+        // Collect inventory rows
+        const rows = [...document.querySelectorAll('#inv-rows .inv-row')];
+        const inventario = rows.map(r => ({
+            talle: r.querySelector('.inv-talle').value.trim(),
+            color: r.querySelector('.inv-color').value.trim(),
+            stock: parseInt(r.querySelector('.inv-stock').value) || 0
+        })).filter(r => r.talle && r.color);
+
+        try {
+            const prodData = await API.createProduct({ nombre, descripcion, precio, genero, id_categoria, imagen });
+
+            if (prodData.codigo !== 200) {
+                showAdminMsg('error', prodData.mensaje || 'Error al crear producto.');
+                return;
+            }
+
+            const idProducto = prodData.payload[0].idProducto;
+
+            // Create inventory items
+            await Promise.all(inventario.map(inv =>
+                API.createInventario({ ...inv, id_producto: idProducto })
+            ));
+
+            showAdminMsg('success', `Producto "${nombre}" creado correctamente.`);
+            document.getElementById('p-nombre').value = '';
+            document.getElementById('p-descripcion').value = '';
+            document.getElementById('p-precio').value = '';
+            document.getElementById('p-imagen').value = '';
+            document.getElementById('inv-rows').innerHTML = '';
+            addInvRow();
+
+            loadAdminProducts();
+        } catch {
+            showAdminMsg('error', 'Error de conexión.');
+        }
+    }
+
+    function showAdminMsg(type, text) {
+        const el = document.getElementById('msg-cargar');
+        el.textContent = text;
+        el.className = `msg msg-${type} show`;
+        setTimeout(() => el.className = 'msg', 5000);
+    }
+
+    // ── Listar productos ────────────────────────────────────────
+    async function loadAdminProducts() {
+        document.getElementById('loading-admin').style.display = 'block';
+        document.getElementById('admin-product-list').innerHTML = '';
+        try {
+            allAdminProducts = await API.getProducts();
+        } catch {
+            allAdminProducts = [];
+        }
+        document.getElementById('loading-admin').style.display = 'none';
+        filterAdminProducts();
+    }
+
+    function filterAdminProducts() {
+        const q = document.getElementById('search-admin').value.toLowerCase();
+        const filtered = allAdminProducts.filter(p =>
+            p.producto.toLowerCase().includes(q)
+        );
+        renderAdminProducts(filtered);
+    }
+
+    function renderAdminProducts(products) {
+        const list = document.getElementById('admin-product-list');
+
+        if (!products.length) {
+            list.innerHTML = '<div class="empty-state"><p>No se encontraron productos.</p></div>';
+            return;
+        }
+
+        list.innerHTML = products.map(p => `
+            <div class="admin-product-item">
+                <img class="admin-product-img"
+                     src="${p.ulrImagen || ''}"
+                     alt="${p.producto}"
+                     onerror="this.style.background='var(--border)'">
+                <div class="admin-product-info">
+                    <div class="admin-product-name">${p.producto}</div>
+                    <div class="admin-product-details">
+                        ${p.categoria} · ${p.genero} · ${formatCurrency(p.precio)}
+                    </div>
+                </div>
+                <button class="btn btn-secondary btn-sm" onclick="openEditModal(${p.idProducto})">
+                    Modificar
+                </button>
+            </div>
+        `).join('');
+    }
+
+    // ── Modal editar ────────────────────────────────────────────
+    async function openEditModal(id) {
+        editProductId = id;
+        document.getElementById('msg-modal').className = 'msg';
+        document.getElementById('inv-edit-list').innerHTML =
+            '<div class="loading"><div class="spinner"></div></div>';
+        document.getElementById('edit-modal').classList.add('show');
+
+        try {
+            editVariants = await API.getProduct(id);
+            if (!editVariants.length) return;
+
+            const p = editVariants[0];
+            document.getElementById('modal-title').textContent = `Modificar: ${p.producto}`;
+
+            // Mostrar info del producto (solo lectura)
+            document.getElementById('edit-precio-display').textContent     = formatCurrency(p.precio);
+            document.getElementById('edit-genero-display').textContent     = p.genero || '—';
+            document.getElementById('edit-categoria-display').textContent  = p.categoria || '—';
+            document.getElementById('edit-descripcion-display').textContent = p.descripcion || '—';
+
+            // Filas de stock por variante
+            document.getElementById('inv-edit-list').innerHTML = editVariants.map(v => `
+                <div class="inv-edit-row">
+                    <div>
+                        <div style="font-weight:600">Talle: ${v.talle}</div>
+                        <div class="text-muted">Color: ${v.color}</div>
+                    </div>
+                    <div class="form-group" style="margin:0">
+                        <label>Stock</label>
+                        <input type="number" min="0" value="${v.stock}"
+                               id="stock-${v.idInventario}" class="variant-select">
+                    </div>
+                </div>
+            `).join('');
+        } catch {
+            document.getElementById('inv-edit-list').innerHTML = '<p class="text-muted">Error al cargar variantes.</p>';
+        }
+    }
+
+    async function saveChanges() {
+        const msgEl = document.getElementById('msg-modal');
+        msgEl.className = 'msg';
+
+        try {
+            await Promise.all(editVariants.map(v => {
+                const input = document.getElementById(`stock-${v.idInventario}`);
+                const stock = parseInt(input?.value) ?? v.stock;
+                return API.modificarStock(v.idInventario, stock);
+            }));
+
+            msgEl.textContent = 'Stock actualizado correctamente.';
+            msgEl.className   = 'msg msg-success show';
+            setTimeout(closeModal, 1800);
+            loadAdminProducts();
+        } catch {
+            msgEl.textContent = 'Error al guardar cambios.';
+            msgEl.className   = 'msg msg-error show';
+        }
+    }
+
+    function closeModal() {
+        document.getElementById('edit-modal').classList.remove('show');
+    }
+
+    // Cerrar modal al hacer click fuera
+    document.getElementById('edit-modal')?.addEventListener('click', function(e) {
+        if (e.target === this) closeModal();
+    });
+
+    init();
+</script>
+</body>
+</html>

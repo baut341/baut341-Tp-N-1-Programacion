@@ -1,0 +1,250 @@
+﻿<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Lana &amp; Lino — Indumentaria</title>
+    <link rel="stylesheet" href="css/estilos.css">
+</head>
+<body>
+
+<main class="page-container">
+    <div class="page-header">
+        <h1 id="page-title">Catálogo</h1>
+        <p id="page-subtitle" class="text-muted">Explorá nuestra colección completa</p>
+    </div>
+
+    <div class="catalog-layout">
+        <!-- Filtros -->
+        <aside class="filter-sidebar">
+            <h3>Filtros</h3>
+
+            <div class="filter-group">
+                <h4>Género</h4>
+                <label><input type="radio" name="genero" value="" checked> Todos</label>
+                <label><input type="radio" name="genero" value="Hombre"> Hombre</label>
+                <label><input type="radio" name="genero" value="Mujer"> Mujer</label>
+                <label><input type="radio" name="genero" value="Unisex"> Unisex</label>
+            </div>
+
+            <div class="filter-group">
+                <h4>Categoría</h4>
+                <div id="cat-filters">
+                    <label><input type="radio" name="categoria" value="" checked> Todas</label>
+                </div>
+            </div>
+
+            <div class="filter-group">
+                <h4>Color</h4>
+                <div id="color-filters">
+                    <span class="text-muted" style="font-size:0.8rem">Cargando...</span>
+                </div>
+            </div>
+
+            <button class="btn-clear-filters" onclick="clearFilters()">Limpiar filtros</button>
+        </aside>
+
+        <!-- Productos -->
+        <section class="product-section">
+            <div class="product-section-header">
+                <h2 id="results-title">Todos los productos</h2>
+                <div style="display:flex;align-items:center;gap:12px">
+                    <span id="product-count" class="product-count"></span>
+                    <select id="sort-select" class="variant-select" style="font-size:0.85rem;padding:6px 10px;width:auto" onchange="applyFilters()">
+                        <option value="">Ordenar</option>
+                        <option value="price-asc">Precio: menor a mayor</option>
+                        <option value="price-desc">Precio: mayor a menor</option>
+                        <option value="name-asc">Nombre: A-Z</option>
+                        <option value="name-desc">Nombre: Z-A</option>
+                    </select>
+                </div>
+            </div>
+
+            <div id="loading" class="loading">
+                <div class="spinner"></div>
+                <p>Cargando productos...</p>
+            </div>
+
+            <div id="product-grid" class="product-grid" style="display:none"></div>
+
+            <div id="empty-state" class="empty-state" style="display:none">
+                <div class="empty-icon">🔍</div>
+                <h3>No se encontraron productos</h3>
+                <p>Probá con otros filtros o términos de búsqueda.</p>
+                <button class="btn btn-secondary mt-3" onclick="clearFilters()">Ver todos los productos</button>
+            </div>
+        </section>
+    </div>
+</main>
+
+<script src="js/configuracion.js"></script>
+<script src="js/autenticacion.js"></script>
+<script src="js/api.js"></script>
+<script src="js/encabezado.js"></script>
+<script>
+    let allProducts    = [];
+    let productColors  = {};   // { idProducto: ['Rojo', 'Negro', ...] }
+    let selectedColors = new Set();
+
+    const params      = new URLSearchParams(window.location.search);
+    const searchQuery = params.get('search') || '';
+    const catParam    = params.get('categoria') || '';
+
+    async function init() {
+        await buildHeader();
+        buildFooter();
+
+        if (searchQuery) {
+            document.getElementById('header-search').value = searchQuery;
+            document.getElementById('page-title').textContent = `Resultados para "${searchQuery}"`;
+            document.getElementById('page-subtitle').textContent = '';
+        }
+        if (catParam) {
+            document.getElementById('page-subtitle').textContent = '';
+        }
+
+        await loadProducts();
+    }
+
+    async function loadProducts() {
+        try {
+            allProducts = await API.getProducts();
+        } catch (e) {
+            document.getElementById('loading').innerHTML =
+                '<p class="text-muted">⚠️ No se pudo conectar al backend. Verificá que esté corriendo en localhost:4000.</p>';
+            return;
+        }
+
+        buildCatFilter();
+        applyFilters();
+        loadColors();   // carga colores en segundo plano
+    }
+
+    function buildCatFilter() {
+        const catDiv = document.getElementById('cat-filters');
+        const catMap = new Map();
+        allProducts.forEach(p => catMap.set(p.idCategoria, p.categoria));
+
+        let html = `<label><input type="radio" name="categoria" value="" ${!catParam ? 'checked' : ''}> Todas</label>`;
+        catMap.forEach((name, id) => {
+            const checked = catParam == id ? 'checked' : '';
+            html += `<label><input type="radio" name="categoria" value="${id}" ${checked}> ${name}</label>`;
+        });
+        catDiv.innerHTML = html;
+
+        catDiv.querySelectorAll('input').forEach(el => el.addEventListener('change', applyFilters));
+        document.querySelectorAll('input[name="genero"]').forEach(el => el.addEventListener('change', applyFilters));
+
+        // Actualizar título si hay categoría seleccionada
+        if (catParam) {
+            const cat = catMap.get(parseInt(catParam));
+            if (cat) {
+                document.getElementById('results-title').textContent = cat;
+                document.getElementById('page-title').textContent = cat;
+            }
+        }
+    }
+
+    async function loadColors() {
+        try {
+            const details = await Promise.all(
+                allProducts.map(p =>
+                    API.getProduct(p.idProducto)
+                        .then(rows => ({ id: p.idProducto, colors: [...new Set(rows.map(r => r.color).filter(Boolean))] }))
+                        .catch(() => ({ id: p.idProducto, colors: [] }))
+                )
+            );
+
+            const allColors = new Set();
+            details.forEach(({ id, colors }) => {
+                productColors[id] = colors;
+                colors.forEach(c => allColors.add(c));
+            });
+
+            buildColorFilter([...allColors].sort());
+        } catch { /* ignorar */ }
+    }
+
+    function buildColorFilter(colors) {
+        const div = document.getElementById('color-filters');
+        if (!colors.length) {
+            div.innerHTML = '<span class="text-muted" style="font-size:0.8rem">Sin colores disponibles</span>';
+            return;
+        }
+        div.innerHTML = colors.map(c =>
+            `<label><input type="checkbox" name="color" value="${c}"> ${c}</label>`
+        ).join('');
+
+        div.querySelectorAll('input').forEach(el => el.addEventListener('change', () => {
+            selectedColors = new Set([...div.querySelectorAll('input:checked')].map(i => i.value));
+            applyFilters();
+        }));
+    }
+
+    function applyFilters() {
+        const genero    = document.querySelector('input[name="genero"]:checked')?.value || '';
+        const categoria = document.querySelector('input[name="categoria"]:checked')?.value || '';
+
+        const filtered = allProducts.filter(p => {
+            if (searchQuery && !p.producto.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+            if (genero    && p.genero !== genero)        return false;
+            if (categoria && p.idCategoria != categoria) return false;
+            if (selectedColors.size) {
+                const pColors = productColors[p.idProducto] || [];
+                if (!pColors.some(c => selectedColors.has(c))) return false;
+            }
+            return true;
+        });
+
+        const sort = document.getElementById('sort-select')?.value || '';
+        if      (sort === 'price-asc')  filtered.sort((a, b) => a.precio - b.precio);
+        else if (sort === 'price-desc') filtered.sort((a, b) => b.precio - a.precio);
+        else if (sort === 'name-asc')   filtered.sort((a, b) => a.producto.localeCompare(b.producto));
+        else if (sort === 'name-desc')  filtered.sort((a, b) => b.producto.localeCompare(a.producto));
+
+        renderProducts(filtered);
+    }
+
+    function clearFilters() {
+        window.location.href = 'index.html';
+    }
+
+    function renderProducts(products) {
+        const grid    = document.getElementById('product-grid');
+        const loading = document.getElementById('loading');
+        const empty   = document.getElementById('empty-state');
+        const count   = document.getElementById('product-count');
+
+        loading.style.display = 'none';
+
+        if (!products.length) {
+            grid.style.display   = 'none';
+            empty.style.display  = 'block';
+            count.textContent    = '';
+            return;
+        }
+
+        count.textContent    = `${products.length} producto${products.length !== 1 ? 's' : ''}`;
+        grid.style.display   = 'grid';
+        empty.style.display  = 'none';
+
+        grid.innerHTML = products.map(p => `
+            <a href="pages/producto.html?id=${p.idProducto}" class="product-card">
+                <img class="product-card-img"
+                     src="${p.ulrImagen || ''}"
+                     alt="${p.producto}"
+                     onerror="this.src='';this.style.background='var(--border)'">
+                <div class="product-card-body">
+                    <div class="product-card-cat">${p.categoria}</div>
+                    <div class="product-card-name">${p.producto}</div>
+                    <div class="product-card-gen">${p.genero}</div>
+                    <div class="product-card-price">${formatCurrency(p.precio)}</div>
+                </div>
+            </a>
+        `).join('');
+    }
+
+    init();
+</script>
+</body>
+</html>

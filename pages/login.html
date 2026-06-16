@@ -1,0 +1,87 @@
+﻿<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iniciar sesión — Lana &amp; Lino</title>
+    <link rel="stylesheet" href="../css/estilos.css">
+</head>
+<body>
+
+<div class="form-container">
+    <h2>Iniciar sesión</h2>
+
+    <div id="msg" class="msg"></div>
+
+    <form id="login-form" onsubmit="handleLogin(event)">
+        <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="email" required placeholder="tu@email.com">
+        </div>
+        <div class="form-group">
+            <label>Contraseña</label>
+            <input type="password" id="password" required placeholder="••••••••">
+        </div>
+        <button type="submit" class="btn btn-primary btn-full" id="btn-submit">Ingresar</button>
+    </form>
+
+    <div class="form-link">
+        ¿No tenés cuenta? <a href="registro.html">Registrate</a>
+    </div>
+    <div class="form-link mt-2">
+        <a href="../index.html">← Volver al catálogo</a>
+    </div>
+</div>
+
+<script src="../js/configuracion.js"></script>
+<script src="../js/autenticacion.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/encabezado.js"></script>
+<script>
+    // si ya esta logueado lo mando al inicio directamente
+    if (Auth.isLoggedIn()) window.location.href = '../index.html';
+
+    buildHeader();
+
+    // si vino desde el carrito para finalizar la compra, muestro un aviso
+    const isCheckout = new URLSearchParams(window.location.search).get('checkout');
+    if (isCheckout) {
+        showMsg('info', 'Para finalizar tu compra necesitás iniciar sesión o registrarte.');
+    }
+
+    async function handleLogin(e) {
+        e.preventDefault();
+        const email    = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value;
+        const btn      = document.getElementById('btn-submit');
+
+        btn.disabled    = true;
+        btn.textContent = 'Ingresando...';
+
+        try {
+            const data = await API.login(email, password);
+
+            if (data.codigo === 200 && data.payload && data.payload.length > 0) {
+                Auth.login(data.payload[0], data.jwt);
+                // sincronizar carrito local al backend antes de redirigir
+                await LocalCart.syncToBackend(data.payload[0].id_usuario);
+                window.location.href = isCheckout ? 'carrito.html' : '../index.html';
+            } else {
+                showMsg('error', data.mensaje || 'Email o contraseña incorrectos.');
+            }
+        } catch {
+            showMsg('error', 'Error de conexión. Verificá que el backend esté activo.');
+        } finally {
+            btn.disabled    = false;
+            btn.textContent = 'Ingresar';
+        }
+    }
+
+    function showMsg(type, text) {
+        const el = document.getElementById('msg');
+        el.textContent = text;
+        el.className   = `msg msg-${type} show`;
+    }
+</script>
+</body>
+</html>

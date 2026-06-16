@@ -1,0 +1,133 @@
+﻿<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Favoritos — Lana &amp; Lino</title>
+    <link rel="stylesheet" href="../css/estilos.css">
+</head>
+<body>
+
+<main class="page-container">
+    <div class="page-header">
+        <h1>Mis favoritos</h1>
+    </div>
+
+    <div id="not-logged" style="display:none" class="empty-state">
+        <div class="empty-icon">🔒</div>
+        <h3>Debés iniciar sesión</h3>
+        <p>Para ver tus favoritos necesitás una cuenta.</p>
+        <a href="login.html" class="btn btn-primary mt-3">Iniciar sesión</a>
+    </div>
+
+    <div id="loading" class="loading" style="display:none">
+        <div class="spinner"></div><p>Cargando favoritos...</p>
+    </div>
+
+    <div id="empty-favs" class="empty-state" style="display:none">
+        <div class="empty-icon">❤️</div>
+        <h3>No tenés favoritos aún</h3>
+        <p>Explorá el catálogo y guardá los productos que más te gusten.</p>
+        <a href="../index.html" class="btn btn-primary mt-3">Ver catálogo</a>
+    </div>
+
+    <div id="fav-grid" class="fav-grid" style="display:none"></div>
+</main>
+
+<script src="../js/configuracion.js"></script>
+<script src="../js/autenticacion.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/encabezado.js"></script>
+<script>
+    let allProducts = [];
+
+    async function init() {
+        await buildHeader();
+        buildFooter();
+
+        if (!Auth.isLoggedIn()) {
+            const nl = document.getElementById('not-logged');
+            nl.style.display        = 'flex';
+            nl.style.flexDirection  = 'column';
+            nl.style.alignItems     = 'center';
+            return;
+        }
+
+        document.getElementById('loading').style.display = 'block';
+        await loadFavorites();
+    }
+
+    async function loadFavorites() {
+        try {
+            const user      = Auth.getUser();
+            const [favData, products] = await Promise.all([
+                API.getFavorites(user.id_usuario),
+                API.getProducts()
+            ]);
+
+            const favIds    = (favData.payload || []).map(f => f.idProducto);
+            allProducts     = products;
+
+            document.getElementById('loading').style.display = 'none';
+
+            if (!favIds.length) {
+                document.getElementById('empty-favs').style.display = 'block';
+                return;
+            }
+
+            const favProducts = products.filter(p => favIds.includes(p.idProducto));
+            renderFavorites(favProducts, favIds);
+        } catch {
+            document.getElementById('loading').innerHTML = '<p class="text-muted">Error al cargar favoritos.</p>';
+        }
+    }
+
+    function renderFavorites(products, favIds) {
+        const grid = document.getElementById('fav-grid');
+        grid.style.display = 'grid';
+
+        grid.innerHTML = products.map(p => `
+            <div class="fav-card" id="fav-${p.idProducto}">
+                <img class="fav-card-img"
+                     src="${p.ulrImagen || ''}"
+                     alt="${p.producto}"
+                     onclick="goToProduct(${p.idProducto})"
+                     onerror="this.style.background='var(--border)'">
+                <div class="fav-card-body">
+                    <div class="fav-card-name" onclick="goToProduct(${p.idProducto})">${p.producto}</div>
+                    <div class="fav-card-price">${formatCurrency(p.precio)}</div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap">
+                        <button class="btn btn-primary btn-sm"
+                                onclick="goToProduct(${p.idProducto})">Ver producto</button>
+                        <button class="btn btn-danger btn-sm"
+                                onclick="removeFav(${p.idProducto})">Quitar</button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async function removeFav(id_producto) {
+        const user = Auth.getUser();
+        try {
+            await API.removeFromFavorites(user.id_usuario, id_producto);
+            const card = document.getElementById(`fav-${id_producto}`);
+            if (card) card.remove();
+
+            if (!document.querySelectorAll('.fav-card').length) {
+                document.getElementById('fav-grid').style.display = 'none';
+                document.getElementById('empty-favs').style.display = 'block';
+            }
+        } catch {
+            alert('Error al eliminar de favoritos.');
+        }
+    }
+
+    function goToProduct(id) {
+        window.location.href = `producto.html?id=${id}`;
+    }
+
+    init();
+</script>
+</body>
+</html>

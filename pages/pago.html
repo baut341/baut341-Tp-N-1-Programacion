@@ -1,0 +1,208 @@
+﻿<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pago — Lana &amp; Lino</title>
+    <link rel="stylesheet" href="../css/estilos.css">
+</head>
+<body>
+
+<main class="page-container">
+    <div class="page-header">
+        <h1>Pago</h1>
+    </div>
+
+    <div id="not-logged" style="display:none" class="empty-state">
+        <div class="empty-icon">🔒</div>
+        <h3>Debés iniciar sesión</h3>
+        <a href="login.html" class="btn btn-primary mt-3">Iniciar sesión</a>
+    </div>
+
+    <div id="loading" class="loading" style="display:none">
+        <div class="spinner"></div><p>Cargando...</p>
+    </div>
+
+    <div id="payment-layout" class="payment-layout" style="display:none">
+        <!-- Formulario de pago -->
+        <div class="payment-form">
+            <h2>Método de pago</h2>
+
+            <div class="form-group">
+                <label>Tipo de pago</label>
+                <select id="tipo-pago" onchange="onTipoPago()" class="variant-select">
+                    <option value="">— Seleccioná —</option>
+                    <option value="transferencia">Transferencia bancaria</option>
+                    <option value="debito">Tarjeta de débito</option>
+                    <option value="credito">Tarjeta de crédito</option>
+                </select>
+            </div>
+
+            <!-- Datos de transferencia -->
+            <div id="transfer-info" style="display:none" class="card mt-2 mb-2">
+                <p style="font-size:0.9rem">Realizá la transferencia a:<br>
+                <strong>CBU:</strong> 0000000000000000000000<br>
+                <strong>Alias:</strong> LANA.LINO.PAGO<br>
+                <strong>Titular:</strong> Lana &amp; Lino S.R.L.</p>
+            </div>
+
+            <!-- Datos de tarjeta -->
+            <div id="card-fields" class="card-fields">
+                <div class="form-group">
+                    <label>Número de tarjeta</label>
+                    <input type="text" id="card-number" placeholder="0000 0000 0000 0000"
+                           maxlength="19" oninput="formatCardNumber(this); checkForm()">
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Vencimiento</label>
+                        <input type="text" id="card-expiry" placeholder="MM/AA"
+                               maxlength="5" oninput="formatExpiry(this); checkForm()">
+                    </div>
+                    <div class="form-group">
+                        <label>CVV</label>
+                        <input type="text" id="card-cvv" placeholder="123"
+                               maxlength="4" oninput="checkForm()">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Nombre en la tarjeta</label>
+                    <input type="text" id="card-name" placeholder="JUAN PEREZ"
+                           style="text-transform:uppercase" oninput="checkForm()">
+                </div>
+            </div>
+
+            <button id="btn-pagar" class="btn btn-primary btn-full mt-3" disabled onclick="handlePay()">
+                Confirmar pago
+            </button>
+        </div>
+
+        <!-- Resumen -->
+        <aside class="payment-summary">
+            <h3>Resumen del pedido</h3>
+            <div id="payment-items"></div>
+            <hr class="divider">
+            <div class="cart-total-row grand">
+                <span>Total</span>
+                <span id="payment-total">$0</span>
+            </div>
+        </aside>
+    </div>
+</main>
+
+<!-- Éxito -->
+<div class="success-overlay" id="success-overlay">
+    <div class="success-card">
+        <div class="success-icon">✓</div>
+        <h2>¡Pago aprobado!</h2>
+        <p>Tu compra fue procesada con éxito.<br>¡Gracias por elegir Lana &amp; Lino!</p>
+        <a href="../index.html" class="btn btn-primary btn-full">Volver al inicio</a>
+    </div>
+</div>
+
+<script src="../js/configuracion.js"></script>
+<script src="../js/autenticacion.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/encabezado.js"></script>
+<script>
+    let cartItems = [];
+
+    async function init() {
+        await buildHeader();
+        buildFooter();
+
+        if (!Auth.isLoggedIn()) {
+            document.getElementById('not-logged').style.display = 'block';
+            return;
+        }
+        document.getElementById('loading').style.display = 'block';
+        await loadCart();
+    }
+
+    async function loadCart() {
+        try {
+            const user = Auth.getUser();
+            const data = await API.getCart(user.id_usuario);
+            cartItems  = data.payload || [];
+        } catch { cartItems = []; }
+
+        document.getElementById('loading').style.display = 'none';
+
+        if (!cartItems.length) {
+            document.getElementById('payment-layout').style.display = 'none';
+            const msg = document.createElement('div');
+            msg.className = 'empty-state';
+            msg.innerHTML = `<div class="empty-icon">🛒</div><h3>Tu carrito está vacío</h3>
+                             <a href="../index.html" class="btn btn-primary mt-3">Ver catálogo</a>`;
+            document.querySelector('.page-container').appendChild(msg);
+            return;
+        }
+
+        document.getElementById('payment-layout').style.display = 'grid';
+        renderSummary();
+    }
+
+    function renderSummary() {
+        const total = cartItems.reduce((s, i) => s + parseFloat(i.precio), 0);
+
+        document.getElementById('payment-items').innerHTML = cartItems.map(i => `
+            <div class="payment-item">
+                <span class="item-name">${i.producto} (T${i.talle} · ${i.color})</span>
+                <span style="white-space:nowrap">${formatCurrency(i.precio)}</span>
+            </div>
+        `).join('');
+
+        document.getElementById('payment-total').textContent = formatCurrency(total);
+    }
+
+    function onTipoPago() {
+        const tipo       = document.getElementById('tipo-pago').value;
+        const cardFields = document.getElementById('card-fields');
+        const transfer   = document.getElementById('transfer-info');
+
+        cardFields.classList.remove('show');
+        transfer.style.display = 'none';
+
+        if (tipo === 'transferencia') {
+            transfer.style.display = 'block';
+            document.getElementById('btn-pagar').disabled = false;
+        } else if (tipo === 'debito' || tipo === 'credito') {
+            cardFields.classList.add('show');
+            checkForm();
+        } else {
+            document.getElementById('btn-pagar').disabled = true;
+        }
+    }
+
+    function checkForm() {
+        const tipo = document.getElementById('tipo-pago').value;
+        if (tipo === 'transferencia') { document.getElementById('btn-pagar').disabled = false; return; }
+        if (!tipo) { document.getElementById('btn-pagar').disabled = true; return; }
+
+        const num  = document.getElementById('card-number').value.replace(/\s/g,'').length === 16;
+        const exp  = document.getElementById('card-expiry').value.length  === 5;
+        const cvv  = document.getElementById('card-cvv').value.length     >= 3;
+        const name = document.getElementById('card-name').value.trim().length > 2;
+
+        document.getElementById('btn-pagar').disabled = !(num && exp && cvv && name);
+    }
+
+    function formatCardNumber(input) {
+        let val = input.value.replace(/\D/g,'').substring(0,16);
+        input.value = val.match(/.{1,4}/g)?.join(' ') || val;
+    }
+
+    function formatExpiry(input) {
+        let val = input.value.replace(/\D/g,'').substring(0,4);
+        if (val.length >= 3) val = val.substring(0,2) + '/' + val.substring(2);
+        input.value = val;
+    }
+
+    function handlePay() {
+        document.getElementById('success-overlay').classList.add('show');
+    }
+
+    init();
+</script>
+</body>
+</html>

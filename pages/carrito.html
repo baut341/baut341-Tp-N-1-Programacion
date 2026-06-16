@@ -1,0 +1,146 @@
+﻿<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carrito — Lana &amp; Lino</title>
+    <link rel="stylesheet" href="../css/estilos.css">
+</head>
+<body>
+
+<main class="page-container">
+    <div class="page-header">
+        <h1>Mi carrito</h1>
+    </div>
+
+    <!-- Cargando -->
+    <div id="loading" class="loading" style="display:none">
+        <div class="spinner"></div><p>Cargando carrito...</p>
+    </div>
+
+    <!-- Vacío -->
+    <div id="empty-cart" class="empty-state" style="display:none">
+        <div class="empty-icon">🛒</div>
+        <h3>Tu carrito está vacío</h3>
+        <p>Agregá productos desde el catálogo.</p>
+        <a href="../index.html" class="btn btn-primary mt-3">Ver catálogo</a>
+    </div>
+
+    <!-- Carrito con productos -->
+    <div id="cart-layout" class="cart-layout" style="display:none">
+        <div class="cart-items" id="cart-items-list"></div>
+
+        <aside class="cart-summary">
+            <h3>Resumen</h3>
+            <div id="summary-items"></div>
+            <hr class="divider">
+            <div class="cart-total-row grand">
+                <span>Total</span>
+                <span id="cart-total">$0</span>
+            </div>
+            <button class="btn btn-primary btn-full mt-3" onclick="goToPay()">
+                Pagar
+            </button>
+            <a href="../index.html" class="btn btn-secondary btn-full mt-2">Seguir comprando</a>
+        </aside>
+    </div>
+</main>
+
+<script src="../js/configuracion.js"></script>
+<script src="../js/autenticacion.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/encabezado.js"></script>
+<script>
+    let cartItems = [];
+
+    async function init() {
+        await buildHeader();
+        buildFooter();
+        loadCart();
+    }
+
+    async function loadCart() {
+        document.getElementById('loading').style.display = 'block';
+
+        if (Auth.isLoggedIn()) {
+            try {
+                const user = Auth.getUser();
+                const data = await API.getCart(user.id_usuario);
+                cartItems  = data.payload || [];
+            } catch {
+                cartItems = [];
+            }
+        } else {
+            cartItems = LocalCart.getItems();
+        }
+
+        document.getElementById('loading').style.display = 'none';
+        renderCart();
+    }
+
+    function renderCart() {
+        if (!cartItems.length) {
+            document.getElementById('empty-cart').style.display = 'block';
+            return;
+        }
+
+        document.getElementById('cart-layout').style.display = 'grid';
+
+        // muestro los productos del carrito
+        document.getElementById('cart-items-list').innerHTML = cartItems.map(item => `
+            <div class="cart-item">
+                <img class="cart-item-img"
+                     src="${item.urlImagen || ''}"
+                     alt="${item.producto}"
+                     onerror="this.style.background='var(--border)'">
+                <div class="cart-item-info">
+                    <div class="cart-item-name">${item.producto}</div>
+                    <div class="cart-item-details">Talle: ${item.talle} · Color: ${item.color}</div>
+                </div>
+                <span class="cart-item-price">${formatCurrency(item.precio)}</span>
+                <button class="btn btn-danger btn-sm"
+                        onclick="removeItem(${item.idInventario})">Quitar</button>
+            </div>
+        `).join('');
+
+        // resumen con el total
+        const total = cartItems.reduce((s, i) => s + parseFloat(i.precio), 0);
+        document.getElementById('summary-items').innerHTML = cartItems.map(i =>
+            `<div class="cart-total-row">
+                <span>${i.producto} (T${i.talle})</span>
+                <span>${formatCurrency(i.precio)}</span>
+             </div>`
+        ).join('');
+        document.getElementById('cart-total').textContent = formatCurrency(total);
+    }
+
+    async function removeItem(id_inventario) {
+        if (Auth.isLoggedIn()) {
+            try {
+                const user = Auth.getUser();
+                await API.removeFromCart(user.id_usuario, id_inventario);
+            } catch {
+                alert('Error al eliminar el producto.');
+                return;
+            }
+        } else {
+            LocalCart.removeItem(id_inventario);
+        }
+        cartItems = cartItems.filter(i => i.idInventario !== id_inventario);
+        document.getElementById('cart-layout').style.display = 'none';
+        document.getElementById('empty-cart').style.display  = 'none';
+        renderCart();
+    }
+
+    function goToPay() {
+        if (!Auth.isLoggedIn()) {
+            window.location.href = 'login.html?checkout=1';
+            return;
+        }
+        window.location.href = 'pago.html';
+    }
+
+    init();
+</script>
+</body>
+</html>

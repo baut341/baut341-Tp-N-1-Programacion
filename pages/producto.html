@@ -1,0 +1,243 @@
+﻿<!DOCTYPE html>
+<html lang="es" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Producto — Lana &amp; Lino</title>
+    <link rel="stylesheet" href="../css/estilos.css">
+</head>
+<body>
+
+<main class="page-container">
+    <div style="margin-bottom:12px">
+        <a href="../index.html" class="text-muted" style="font-size:0.88rem">← Volver al catálogo</a>
+    </div>
+
+    <div id="loading" class="loading"><div class="spinner"></div><p>Cargando producto...</p></div>
+    <div id="product-content" style="display:none"></div>
+    <div id="error-state" class="empty-state" style="display:none">
+        <div class="empty-icon">😕</div>
+        <h3>Producto no encontrado</h3>
+        <a href="../index.html" class="btn btn-primary mt-3">Ver catálogo</a>
+    </div>
+</main>
+
+<!-- Mensaje toast -->
+<div id="toast" style="
+    position:fixed; bottom:24px; right:24px;
+    background:var(--bg-card); color:var(--text);
+    border:1px solid var(--border); border-radius:10px;
+    padding:14px 20px; box-shadow:var(--shadow-hover);
+    display:none; font-size:0.9rem; z-index:9999; max-width:300px;">
+</div>
+
+<script src="../js/configuracion.js"></script>
+<script src="../js/autenticacion.js"></script>
+<script src="../js/api.js"></script>
+<script src="../js/encabezado.js"></script>
+<script>
+    const CUOTA_RATES = { 1: 1, 3: 1, 6: 1.15, 9: 1.25, 12: 1.35 };
+    const productId   = new URLSearchParams(window.location.search).get('id');
+    let variants      = []; // filas del inventario (talles y colores disponibles)
+    let selectedVariant = null;
+
+    async function init() {
+        await buildHeader();
+        buildFooter();
+
+        if (!productId) { showError(); return; }
+
+        try {
+            variants = await API.getProduct(productId);
+            if (!variants.length) { showError(); return; }
+            renderProduct();
+        } catch {
+            showError();
+        }
+    }
+
+    function renderProduct() {
+        const p       = variants[0];
+        const loggedIn = Auth.isLoggedIn();
+
+        const variantOptions = variants.map(v =>
+            `<option value="${v.idInventario}" data-stock="${v.stock}">
+                Talle ${v.talle} — ${v.color} (Stock: ${v.stock})
+             </option>`
+        ).join('');
+
+        document.title = `${p.producto} — Lana & Lino`;
+
+        document.getElementById('product-content').innerHTML = `
+            <div class="product-detail">
+                <div class="product-detail-img">
+                    <img src="${p.ulrImagen || ''}"
+                         alt="${p.producto}"
+                         onerror="this.style.background='var(--border)';this.style.minHeight='320px'">
+                </div>
+
+                <div class="product-detail-info">
+                    <span class="product-badge">${p.categoria} · ${p.genero}</span>
+                    <h1 class="product-detail-name">${p.producto}</h1>
+                    <div class="product-detail-price" id="display-price">${formatCurrency(p.precio)}</div>
+                    <p class="product-detail-desc">${p.descripcion}</p>
+
+                    <div class="detail-label">Variante (Talle — Color — Stock)</div>
+                    <select class="variant-select" id="variant-select" onchange="onVariantChange()">
+                        <option value="">— Seleccioná una variante —</option>
+                        ${variantOptions}
+                    </select>
+
+                    <div id="stock-badge"></div>
+
+                    <!-- Cuotas -->
+                    <div class="cuotas-card">
+                        <h4>Cuotas disponibles</h4>
+                        <div class="cuotas-opts">
+                            ${[1,3,6,9,12].map(n =>
+                                `<button class="cuota-btn ${n===1?'active':''}"
+                                         onclick="selectCuota(${n},${p.precio})"
+                                         data-n="${n}">${n}x</button>`
+                            ).join('')}
+                        </div>
+                        <div class="cuota-result" id="cuota-result">
+                            <strong>1 pago de ${formatCurrency(p.precio)}</strong>
+                        </div>
+                    </div>
+
+                    <!-- Acciones -->
+                    <div class="product-actions">
+                        <button id="btn-cart" class="btn btn-primary" onclick="addToCart()" disabled>
+                            Agregar al carrito
+                        </button>
+                        ${loggedIn
+                            ? `<button class="btn btn-outline" onclick="toggleFavorite()">
+                                   <span id="fav-icon">❤️</span> Favorito
+                               </button>`
+                            : ''
+                        }
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.getElementById('loading').style.display   = 'none';
+        document.getElementById('product-content').style.display = 'block';
+
+        if (loggedIn) checkFavorite();
+    }
+
+    function onVariantChange() {
+        const sel   = document.getElementById('variant-select');
+        const inv   = parseInt(sel.value);
+        const opt   = sel.selectedOptions[0];
+        const stock = opt ? parseInt(opt.dataset.stock) : 0;
+
+        selectedVariant = inv || null;
+
+        const badge   = document.getElementById('stock-badge');
+        const btnCart = document.getElementById('btn-cart');
+
+        if (!inv) {
+            badge.innerHTML = '';
+            btnCart.disabled = true;
+            return;
+        }
+
+        if (stock > 0) {
+            badge.innerHTML = `<span class="stock-badge stock-ok">${stock} unidades disponibles</span>`;
+            btnCart.disabled = false;
+        } else {
+            badge.innerHTML = `<span class="stock-badge stock-out">Sin stock</span>`;
+            btnCart.disabled = true;
+        }
+    }
+
+    function selectCuota(n, precio) {
+        document.querySelectorAll('.cuota-btn').forEach(b => b.classList.toggle('active', parseInt(b.dataset.n) === n));
+        const total     = precio * CUOTA_RATES[n];
+        const cuota     = total / n;
+        const result    = document.getElementById('cuota-result');
+        const interest  = CUOTA_RATES[n] > 1 ? ` (${Math.round((CUOTA_RATES[n]-1)*100)}% interés)` : ' sin interés';
+        result.innerHTML = n === 1
+            ? `<strong>1 pago de ${formatCurrency(total)}</strong>`
+            : `<strong>${n} cuotas de ${formatCurrency(cuota)}</strong>${interest} · Total: ${formatCurrency(total)}`;
+    }
+
+    async function addToCart() {
+        if (!selectedVariant) { showToast('Seleccioná una variante primero.'); return; }
+
+        const btn = document.getElementById('btn-cart');
+        btn.disabled = true;
+        btn.textContent = 'Agregando...';
+
+        if (Auth.isLoggedIn()) {
+            try {
+                const user = Auth.getUser();
+                const data = await API.addToCart(selectedVariant, user.id_usuario);
+                showToast(data.codigo === 200 ? 'Producto agregado al carrito.' : (data.mensaje || 'Error al agregar.'));
+            } catch {
+                showToast('Error de conexión.');
+            }
+        } else {
+            const v = variants.find(v => v.idInventario == selectedVariant);
+            LocalCart.addItem({
+                idInventario: selectedVariant,
+                producto:     variants[0].producto,
+                talle:        v?.talle || '',
+                color:        v?.color || '',
+                precio:       variants[0].precio,
+                urlImagen:    variants[0].ulrImagen || ''
+            });
+            showToast('Producto agregado al carrito.');
+        }
+
+        btn.disabled  = false;
+        btn.innerHTML = 'Agregar al carrito';
+    }
+
+    async function checkFavorite() {
+        try {
+            const user = Auth.getUser();
+            const data = await API.getFavorites(user.id_usuario);
+            const favs = data.payload || [];
+            if (favs.some(f => f.idProducto == productId)) {
+                document.getElementById('fav-icon').textContent = '💔';
+            }
+        } catch { /* si falla no importa, es solo para ver si ya lo tiene en favoritos */ }
+    }
+
+    async function toggleFavorite() {
+        const user = Auth.getUser();
+        const data = await API.getFavorites(user.id_usuario);
+        const favs = data.payload || [];
+        const isFav = favs.some(f => f.idProducto == productId);
+
+        if (isFav) {
+            await API.removeFromFavorites(user.id_usuario, productId);
+            document.getElementById('fav-icon').textContent = '❤️';
+            showToast('Eliminado de favoritos.');
+        } else {
+            await API.addToFavorites(productId, user.id_usuario);
+            document.getElementById('fav-icon').textContent = '💔';
+            showToast('Agregado a favoritos.');
+        }
+    }
+
+    function showError() {
+        document.getElementById('loading').style.display    = 'none';
+        document.getElementById('error-state').style.display = 'block';
+    }
+
+    function showToast(text) {
+        const t = document.getElementById('toast');
+        t.textContent = text;
+        t.style.display = 'block';
+        clearTimeout(t._timer);
+        t._timer = setTimeout(() => t.style.display = 'none', 3000);
+    }
+
+    init();
+</script>
+</body>
+</html>
